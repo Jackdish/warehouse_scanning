@@ -1,0 +1,172 @@
+# index.html
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#000000" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>Warehouse Scanner</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+
+# manifest.json
+{
+  "short_name": "Scanner",
+  "name": "Warehouse Scanner",
+  "icons": [
+    {
+      "src": "icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#ffffff"
+}
+
+# src/App.jsx
+import React, { useState, useEffect } from 'react';
+import { BarcodeScanner } from '@zxing/browser';
+import localforage from 'localforage';
+
+function App() {
+  const [scanning, setScanning] = useState(false);
+  const [location, setLocation] = useState('');
+  const [products, setProducts] = useState([]);
+  const [status, setStatus] = useState('');
+  
+  useEffect(() => {
+    // Load cached data
+    const loadCache = async () => {
+      const cached = await localforage.getItem('scanData');
+      if (cached) {
+        setLocation(cached.location || '');
+        setProducts(cached.products || []);
+      }
+    };
+    loadCache();
+  }, []);
+
+  const startScanning = async () => {
+    try {
+      setScanning(true);
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const videoElement = document.getElementById('scanner');
+      videoElement.srcObject = stream;
+      
+      const scanner = new BarcodeScanner();
+      const result = await scanner.decodeFromVideoElement(videoElement);
+      
+      if (!location) {
+        setLocation(result.text);
+        setStatus('Location set. Scan products or mark empty.');
+      } else {
+        setProducts([...products, result.text]);
+        setStatus(`Added product: ${result.text}`);
+      }
+      
+      // Cache data
+      await localforage.setItem('scanData', { location, products });
+      
+    } catch (error) {
+      setStatus('Scanning error: ' + error.message);
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const submitData = async () => {
+    try {
+      setStatus('Submitting...');
+      
+      // Check online status
+      if (!navigator.onLine) {
+        await localforage.setItem('pendingSubmission', { location, products });
+        setStatus('Saved offline. Will sync when online.');
+        return;
+      }
+      
+      // Submit to Google Sheet
+      // Add your Google Sheets submission code here
+      
+      // Clear data after submission
+      setLocation('');
+      setProducts([]);
+      await localforage.removeItem('scanData');
+      
+      setStatus('Submitted successfully');
+    } catch (error) {
+      setStatus('Submission error: ' + error.message);
+    }
+  };
+
+  const markEmpty = async () => {
+    try {
+      setStatus('Marking location as empty...');
+      // Submit empty location to Google Sheet
+      setLocation('');
+      setProducts([]);
+      await localforage.removeItem('scanData');
+      setStatus('Location marked as empty');
+    } catch (error) {
+      setStatus('Error marking empty: ' + error.message);
+    }
+  };
+
+  return (
+    <div className="container">
+      <h1>Warehouse Scanner</h1>
+      
+      {scanning && (
+        <video id="scanner" autoPlay playsInline />
+      )}
+      
+      <div className="status">
+        <p>Location: {location || 'Not set'}</p>
+        <p>Products scanned: {products.length}</p>
+        <p>{status}</p>
+      </div>
+      
+      <div className="buttons">
+        <button onClick={startScanning} disabled={scanning}>
+          Scan {!location ? 'Location' : 'Product'}
+        </button>
+        
+        {location && (
+          <>
+            <button onClick={markEmpty}>Mark Empty</button>
+            <button onClick={submitData} disabled={products.length === 0}>
+              Submit
+            </button>
+          </>
+        )}
+      </div>
+      
+      {products.length > 0 && (
+        <div className="product-list">
+          <h2>Scanned Products</h2>
+          <ul>
+            {products.map((product, index) => (
+              <li key={index}>{product}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
